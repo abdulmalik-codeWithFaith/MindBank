@@ -2,6 +2,9 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signInWithPopup, updateProfile } from "firebase/auth";
+import { getFirebaseAuth, googleProvider } from "@/lib/firebase";
+import { useAuth } from "@/components/AuthProvider";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { ArrowLeft, Brain, Eye, EyeOff, Loader2, Lock, Mail, ShieldCheck, Sparkles, User } from "lucide-react";
 
@@ -11,8 +14,24 @@ type Draft = { amount: string; goal: string };
 const SIDE_IMG =
   "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=1000&q=80";
 
+const friendly = (code?: string) => {
+  switch (code) {
+    case "auth/email-already-in-use": return "That email already has an account. Try logging in.";
+    case "auth/invalid-credential":
+    case "auth/wrong-password":
+    case "auth/user-not-found": return "Email or password is incorrect.";
+    case "auth/weak-password": return "Use a stronger password (8+ characters).";
+    case "auth/too-many-requests": return "Too many attempts. Wait a moment and try again.";
+    case "auth/network-request-failed": return "Network problem. Check your connection and try again.";
+    case "auth/popup-closed-by-user":
+    case "auth/cancelled-popup-request": return "";
+    default: return "We couldn’t sign you in. Please try again.";
+  }
+};
+
 export default function AuthPage() {
   const router = useRouter();
+  const { user, loading: authLoading } = useAuth();
   const [mode, setMode] = useState<Mode>("signup");
   const [draft, setDraft] = useState<Draft | null>(null);
   const [name, setName] = useState("");
@@ -22,6 +41,15 @@ export default function AuthPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [imgOk, setImgOk] = useState(true);
+
+  const goNext = (m: Mode) => {
+    let hasAssessment = false;
+    try { hasAssessment = !!localStorage.getItem("mindbank:assessmentMeta"); } catch {}
+    router.replace(m === "login" && hasAssessment ? "/dashboard" : "/assessment");
+  };
+
+  // Already signed in (saved session)? Skip the form.
+  useEffect(() => { if (!authLoading && user && !loading) goNext("login"); }, [authLoading, user]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Pick up the amount and goal the visitor typed on the landing page
   useEffect(() => {
@@ -40,21 +68,28 @@ export default function AuthPage() {
 
     setLoading(true);
     try {
-      // TODO: replace with your auth provider.
-      // Supabase: mode === "signup"
-      //   ? await supabase.auth.signUp({ email, password, options: { data: { name } } })
-      //   : await supabase.auth.signInWithPassword({ email, password })
-      // Firebase: createUserWithEmailAndPassword / signInWithEmailAndPassword
-      await new Promise((r) => setTimeout(r, 900));
-      router.push("/assessment");
-    } catch {
-      setError("We couldn’t sign you in. Check your details and try again.");
+      if (mode === "signup") {
+        const cred = await createUserWithEmailAndPassword(getFirebaseAuth(), email.trim(), password);
+        await updateProfile(cred.user, { displayName: name.trim() });
+      } else {
+        await signInWithEmailAndPassword(getFirebaseAuth(), email.trim(), password);
+      }
+      goNext(mode);
+    } catch (err) {
+      setError(friendly((err as { code?: string }).code));
       setLoading(false);
     }
   };
 
-  const google = () => {
-    // TODO: supabase.auth.signInWithOAuth({ provider: "google" }) or Firebase signInWithPopup
+  const google = async () => {
+    setError(""); setLoading(true);
+    try {
+      await signInWithPopup(getFirebaseAuth(), googleProvider);
+      goNext("login");
+    } catch (err) {
+      setError(friendly((err as { code?: string }).code));
+      setLoading(false);
+    }
   };
 
   const field =

@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
+import AuthModal from "@/components/AuthModal";
+import { useAuth } from "@/components/AuthProvider";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import {
   ArrowRight, BarChart3, Brain, CalendarCheck, CheckCircle2, Gamepad2, Landmark,
@@ -40,14 +43,22 @@ const Reveal = ({ children, className = "" }: { children: ReactNode; className?:
 const fmt = (v: string) => (v ? Number(v).toLocaleString("en-NG") : "");
 
 export default function Home() {
+  const router = useRouter();
+  const { user } = useAuth();
   const [amount, setAmount] = useState("100000");
   const [goal, setGoal] = useState("");
   const [authOpen, setAuthOpen] = useState(false);
   const [menu, setMenu] = useState(false);
 
+  // Signed-in visitors skip the modal and go straight to the app
+  const openAuth = (dest = "/assessment") => {
+    if (user) router.push(dest);
+    else setAuthOpen(true);
+  };
+
   const withdraw = () => {
     try { sessionStorage.setItem("mindbank:draft", JSON.stringify({ amount, goal })); } catch {}
-    setAuthOpen(true);
+    openAuth();
   };
 
   return (
@@ -66,8 +77,8 @@ export default function Home() {
               ))}
             </nav>
             <div className="hidden items-center gap-3 md:flex">
-              <button onClick={() => setAuthOpen(true)} className="text-sm font-semibold text-ink/80 hover:text-ink">Log in</button>
-              <button onClick={() => setAuthOpen(true)} className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet">Get started</button>
+              <button onClick={() => openAuth("/dashboard")} className="text-sm font-semibold text-ink/80 hover:text-ink">{user ? "Dashboard" : "Log in"}</button>
+              <button onClick={() => openAuth()} className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet">{user ? "Continue" : "Get started"}</button>
             </div>
             <button aria-label="Toggle menu" className="md:hidden" onClick={() => setMenu(!menu)}>{menu ? <X /> : <Menu />}</button>
           </div>
@@ -77,7 +88,7 @@ export default function Home() {
                 {[["How it works", "#how"], ["Features", "#features"], ["Ways to earn", "#earn"]].map(([l, h]) => (
                   <a key={h} href={h} onClick={() => setMenu(false)} className="font-medium">{l}</a>
                 ))}
-                <button onClick={() => { setMenu(false); setAuthOpen(true); }} className="rounded-xl bg-ink py-2.5 font-semibold text-white">Get started</button>
+                <button onClick={() => { setMenu(false); openAuth(); }} className="rounded-xl bg-ink py-2.5 font-semibold text-white">Get started</button>
               </motion.div>
             )}
           </AnimatePresence>
@@ -262,28 +273,7 @@ export default function Home() {
           <p className="mt-2">MindBank doesn’t lend money. Earning estimates are guidance, not guarantees.</p>
         </footer>
 
-        {/* AUTH MODAL */}
-        <AnimatePresence>
-          {authOpen && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 grid place-items-center bg-ink/60 p-5 backdrop-blur-sm" onClick={() => setAuthOpen(false)}>
-              <motion.div role="dialog" aria-modal="true" aria-label="Log in or create account" initial={{ scale: 0.92, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, opacity: 0 }} onClick={(e) => e.stopPropagation()} className="w-full max-w-md rounded-3xl bg-white p-8 shadow-2xl">
-                <div className="flex justify-between">
-                  <h3 className="font-display text-2xl font-extrabold">Log in to withdraw</h3>
-                  <button aria-label="Close" onClick={() => setAuthOpen(false)}><X /></button>
-                </div>
-                <p className="mt-2 text-sm text-ink/60">
-                  {amount ? <>Your ₦{fmt(amount)} goal is saved. </> : null}Create an account to answer the questions and see your plan.
-                </p>
-                <div className="mt-6 space-y-3">
-                  <input type="email" placeholder="Email address" className="w-full rounded-xl px-4 py-3 ring-1 ring-ink/15 outline-none focus:ring-2 focus:ring-violet" />
-                  <input type="password" placeholder="Password" className="w-full rounded-xl px-4 py-3 ring-1 ring-ink/15 outline-none focus:ring-2 focus:ring-violet" />
-                  <button className="w-full rounded-xl bg-ink py-3 font-bold text-white transition hover:bg-violet">Continue</button>
-                  <button className="w-full rounded-xl py-3 font-semibold ring-1 ring-ink/15 transition hover:bg-paper">Continue with Google</button>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+        <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} amount={amount} />
       </main>
     </MotionConfig>
   );
