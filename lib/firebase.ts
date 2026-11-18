@@ -1,5 +1,6 @@
-import { getApp, getApps, initializeApp } from "firebase/app";
+import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
 import { browserLocalPersistence, getAuth, GoogleAuthProvider, setPersistence, type Auth } from "firebase/auth";
+import { getFirestore, type Firestore } from "firebase/firestore";
 
 const config = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -10,22 +11,26 @@ const config = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-let cached: Auth | null = null;
+let authCache: Auth | null = null;
 
-/**
- * Browser-only. Call this inside effects or event handlers, never during render
- * or at module level, so server prerendering can't crash on missing config.
- */
-export function getFirebaseAuth(): Auth {
-  if (typeof window === "undefined") throw new Error("Firebase Auth is only available in the browser.");
-  if (cached) return cached;
+/** Browser-only. Call inside effects or handlers, never during render or at module level. */
+function getClientApp(): FirebaseApp {
+  if (typeof window === "undefined") throw new Error("Firebase client SDK is only available in the browser.");
   if (!config.apiKey) {
     throw new Error("Missing NEXT_PUBLIC_FIREBASE_* variables. Add them to .env.local and restart the dev server.");
   }
-  const app = getApps().length ? getApp() : initializeApp(config);
-  cached = getAuth(app);
-  setPersistence(cached, browserLocalPersistence).catch(() => {}); // keep the session across restarts
-  return cached;
+  return getApps().length ? getApp() : initializeApp(config);
+}
+
+export function getFirebaseAuth(): Auth {
+  if (authCache) return authCache;
+  authCache = getAuth(getClientApp());
+  setPersistence(authCache, browserLocalPersistence).catch(() => {}); // keep the session across restarts
+  return authCache;
+}
+
+export function getDb(): Firestore {
+  return getFirestore(getClientApp());
 }
 
 export const googleProvider = new GoogleAuthProvider(); // safe to create on the server

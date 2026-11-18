@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/components/AuthProvider";
+import SignOutButton from "@/components/SignOutButton";
+import { useEntries, useUserDoc } from "@/lib/hooks";
+import { addEntry, removeEntry, type Entry } from "@/lib/db";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { BarChart3, Brain, CalendarClock, Flame, ListChecks, PartyPopper, PiggyBank, Plus, Target, Trash2, TrendingUp, Wallet } from "lucide-react";
-
-type Entry = { id: string; kind: "Earned" | "Saved"; source: string; amount: number; date: string; note: string };
 
 const SOURCES = ["Freelancing", "Surveys", "Microtasks", "Gaming rewards", "Selling items", "Salary savings", "Other"];
 const WEEKS: Record<string, number> = { "1 week": 1, "2 weeks": 2, "1 month": 4, "3 months": 13, "6 months": 26 };
@@ -12,43 +15,38 @@ const MILESTONES = [25, 50, 75, 100];
 const DAY = 86400000;
 const naira = (v: number) => "₦" + Math.round(v).toLocaleString("en-NG");
 const today = () => new Date().toISOString().slice(0, 10);
-const read = <T,>(store: Storage, key: string, fallback: T): T => { try { const v = store.getItem(key); return v ? JSON.parse(v) : fallback; } catch { return fallback; } };
 
 export default function DashboardPage() {
-  const [ready, setReady] = useState(false);
-  const [goal, setGoal] = useState({ amount: "", goal: "" });
-  const [baseSaved, setBaseSaved] = useState(0);
-  const [weeks, setWeeks] = useState(4);
-  const [start, setStart] = useState("");
+  const router = useRouter();
+  const { user } = useAuth();
+  const userDoc = useUserDoc(user?.uid);
+  const entriesRaw = useEntries(user?.uid);
+  const entries = useMemo(() => entriesRaw ?? [], [entriesRaw]);
   const [now, setNow] = useState(0); // set after mount so prerender never reads the clock
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [tasks, setTasks] = useState({ done: 0, total: 0 });
   const [kind, setKind] = useState<Entry["kind"]>("Earned");
   const [source, setSource] = useState(SOURCES[0]);
   const [amount, setAmount] = useState("");
   const [note, setNote] = useState("");
   const [celebrate, setCelebrate] = useState<number | null>(null);
 
+  useEffect(() => { setNow(Date.now()); }, []);
+
+  // No saved goal or answers yet? Send the user to the right step.
   useEffect(() => {
-    // TODO: load goal + entries from Supabase/Firebase for the signed-in user (redirect to /auth if none)
-    const g = read(sessionStorage, "mindbank:draft", null) ?? read(localStorage, "mindbank:goal", null);
-    const a = read<{ savings?: string; deadline?: string } | null>(sessionStorage, "mindbank:assessment", null) ?? read(localStorage, "mindbank:assessmentMeta", null);
-    if (!g) { window.location.href = "/"; return; }
-    setGoal(g);
-    setBaseSaved(Number(a?.savings || 0));
-    setWeeks(WEEKS[a?.deadline ?? ""] ?? 4);
-    try {
-      localStorage.setItem("mindbank:goal", JSON.stringify(g));
-      localStorage.setItem("mindbank:assessmentMeta", JSON.stringify({ savings: a?.savings, deadline: a?.deadline }));
-      if (!localStorage.getItem("mindbank:start")) localStorage.setItem("mindbank:start", today());
-    } catch {}
-    setStart(read(localStorage, "mindbank:start", today()));
-    setEntries(read(localStorage, "mindbank:entries", []));
-    const done = Object.values(read<Record<string, boolean>>(localStorage, "mindbank:done", {})).filter(Boolean).length;
-    setTasks({ done, total: Math.max(done, 12) });
-    setNow(Date.now());
-    setReady(true);
-  }, []);
+    if (userDoc === undefined) return;
+    if (!userDoc?.goal) router.replace("/");
+    else if (!userDoc.assessment) router.replace("/assessment");
+  }, [userDoc, router]);
+
+  const goal = userDoc?.goal ?? { amount: "", goal: "" };
+  const baseSaved = Number(userDoc?.assessment?.savings || 0);
+  const weeks = WEEKS[userDoc?.assessment?.deadline ?? ""] ?? 4;
+  const start = userDoc?.start ?? "";
+  const tasks = {
+    done: Object.values(userDoc?.done ?? {}).filter(Boolean).length,
+    total: (userDoc?.plan?.weeklyActions ?? []).reduce((n, w) => n + w.tasks.length, 0),
+  };
+  const ready = !!now && !!userDoc?.goal && !!userDoc?.assessment && entriesRaw !== undefined;
 
   const target = Number(goal.amount || 0);
   const logged = entries.reduce((s, e) => s + e.amount, 0);
@@ -84,16 +82,15 @@ export default function DashboardPage() {
     return n;
   }, [entries, now]);
 
-  const persist = (next: Entry[]) => { setEntries(next); try { localStorage.setItem("mindbank:entries", JSON.stringify(next)); } catch {} };
 
   const add = (e: FormEvent) => {
     e.preventDefault();
     const v = Number(amount.replace(/\D/g, ""));
-    if (!v) return;
+    if (!v || !user) return;
     const before = target ? Math.floor((total / target) * 100) : 0;
     const after = target ? Math.floor(((total + v) / target) * 100) : 0;
     const hit = MILESTONES.filter((m) => before < m && after >= m).pop();
-    persist([{ id: crypto.randomUUID(), kind, source, amount: v, date: today(), note: note.trim() }, ...entries]);
+    addEntry(user.uid, { id: crypto.randomUUID(), kind, source, amount: v, date: today(), note: note.trim(), ts: Date.now() }).catch((err) => console.error("save entry:", err));
     setAmount(""); setNote("");
     if (hit) { setCelebrate(hit); setTimeout(() => setCelebrate(null), 4500); }
   };
@@ -114,7 +111,11 @@ export default function DashboardPage() {
       <main className="mx-auto max-w-6xl px-5 py-8">
         <nav className="flex items-center justify-between">
           <a href="/" className="flex items-center gap-2 font-display text-lg font-extrabold"><span className="grid h-8 w-8 place-items-center rounded-xl bg-ink text-white"><Brain size={18} /></span>MindBank</a>
-          <a href="/plan" className="flex items-center gap-1.5 rounded-xl bg-white px-4 py-2 text-sm font-semibold ring-1 ring-ink/15 hover:bg-paper"><ListChecks size={16} /> My plan</a>
+          <div className="flex items-center gap-2">
+            <a href="/earn" className="rounded-xl px-3 py-2 text-sm font-semibold text-ink/70 hover:bg-ink/5">Ways to earn</a>
+            <a href="/plan" className="flex items-center gap-1.5 rounded-xl bg-white px-4 py-2 text-sm font-semibold ring-1 ring-ink/15 hover:bg-paper"><ListChecks size={16} /> My plan</a>
+            <SignOutButton />
+          </div>
         </nav>
 
         <AnimatePresence>
@@ -201,7 +202,7 @@ export default function DashboardPage() {
         <div className="mt-6 grid gap-6 lg:grid-cols-[1fr_1.2fr]">
           <section className="glass rounded-[2rem] p-6 sm:p-8">
             <h2 className="font-display flex items-center gap-2 text-2xl font-extrabold"><TrendingUp className="text-violet" /> Plan actions</h2>
-            <p className="font-display mt-4 text-4xl font-extrabold">{tasks.done}<span className="text-lg text-ink/40"> done</span></p>
+            <p className="font-display mt-4 text-4xl font-extrabold">{tasks.done}<span className="text-lg text-ink/40"> of {tasks.total || "–"} done</span></p>
             <p className="mt-1 text-sm text-ink/60">Tick off weekly actions on your plan page to keep this moving.</p>
             <a href="/plan" className="mt-5 inline-block rounded-xl bg-ink px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet">Open plan</a>
           </section>
@@ -221,7 +222,7 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="font-display font-bold text-emerald">+{naira(e.amount)}</span>
-                        <button aria-label={`Delete ${e.source} entry`} onClick={() => persist(entries.filter((x) => x.id !== e.id))} className="text-ink/35 transition hover:text-red-600"><Trash2 size={16} /></button>
+                        <button aria-label={`Delete ${e.source} entry`} onClick={() => user && removeEntry(user.uid, e.id).catch((err) => console.error("delete entry:", err))} className="text-ink/35 transition hover:text-red-600"><Trash2 size={16} /></button>
                       </div>
                     </motion.li>
                   ))}
@@ -231,7 +232,7 @@ export default function DashboardPage() {
           </section>
         </div>
 
-        <p className="mt-10 pb-6 text-center text-xs text-ink/45">Your entries are saved on this device for now. MindBank doesn’t lend money.</p>
+        <p className="mt-10 pb-6 text-center text-xs text-ink/45">Your entries are saved to your account. MindBank doesn’t lend money.</p>
       </main>
     </MotionConfig>
   );

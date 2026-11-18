@@ -1,6 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useAuth } from "@/components/AuthProvider";
+import { useUserDoc } from "@/lib/hooks";
+import { saveSetup } from "@/lib/db";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { ArrowLeft, ArrowRight, Brain, Briefcase, Check, Clock, Loader2, PiggyBank, Sparkles, Target, Wallet } from "lucide-react";
@@ -12,7 +15,7 @@ type Form = {
 const empty: Form = { status: "", income: "", skills: [], otherSkill: "", expenses: "", savings: "", hours: "", deadline: "" };
 
 const STATUS = ["Employed", "Self-employed", "Student", "Unemployed"];
-const SKILLS = ["Writing", "Graphic design", "Coding", "Video editing", "Teaching", "Social media", "Sales", "Data entry", "Photography", "Customer support", "Fashion / tailoring", "Cooking"];
+const SKILLS = ["Web development", "Mobile apps", "Coding", "Graphic design", "Writing", "Video editing", "Data analysis", "Virtual assistant", "Social media", "Sales", "Teaching", "Translation", "Data entry", "Photography", "Customer support", "Fashion / tailoring", "Cooking", "Makeup"];
 const HOURS = ["Under 1 hour", "1–2 hours", "3–4 hours", "5+ hours"];
 const DEADLINES = ["1 week", "2 weeks", "1 month", "3 months", "6 months"];
 const STEPS = [
@@ -48,6 +51,10 @@ export default function AssessmentPage() {
   const [f, setF] = useState<Form>(empty);
   const [goal, setGoal] = useState({ amount: "", goal: "" });
   const [busy, setBusy] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const { user } = useAuth();
+  const userDoc = useUserDoc(user?.uid);
+  const hydrated = useRef(false);
 
   useEffect(() => {
     // TODO: if there is no authenticated user, router.replace("/auth")
@@ -58,6 +65,17 @@ export default function AssessmentPage() {
       if (a) setF({ ...empty, ...JSON.parse(a) });
     } catch {}
   }, []);
+
+  useEffect(() => {
+    if (userDoc === undefined) return;
+    let hasDraft = false;
+    try { hasDraft = !!sessionStorage.getItem("mindbank:draft"); } catch {}
+    if (userDoc?.goal && !hasDraft) setGoal(userDoc.goal); // a fresh goal typed on the landing page wins
+    if (!hydrated.current) {
+      hydrated.current = true;
+      if (userDoc?.assessment) setF({ ...empty, ...userDoc.assessment });
+    }
+  }, [userDoc]);
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setF((p) => ({ ...p, [k]: v }));
   const num = (k: "income" | "expenses" | "savings") => (e: React.ChangeEvent<HTMLInputElement>) => set(k, e.target.value.replace(/\D/g, "").slice(0, 10));
@@ -78,11 +96,18 @@ export default function AssessmentPage() {
 
   const go = (d: number) => { setDir(d); setStep((s) => s + d); };
   const finish = async () => {
-    setBusy(true);
-    try { sessionStorage.setItem("mindbank:assessment", JSON.stringify(f)); } catch {}
-    // TODO: save to Supabase/Firebase, then call your Gemini route (e.g. POST /api/plan)
-    await new Promise((r) => setTimeout(r, 2200));
-    router.push("/plan");
+    if (!user) return;
+    if (!goal.amount) { setSaveError("Enter your amount and goal on the home page first."); return; }
+    setBusy(true); setSaveError("");
+    try {
+      await saveSetup(user.uid, goal, f);
+      try { sessionStorage.removeItem("mindbank:draft"); } catch {}
+      router.push("/plan");
+    } catch (err) {
+      console.error("save setup:", err);
+      setSaveError("We couldn’t save your answers. Check your connection and try again.");
+      setBusy(false);
+    }
   };
 
   const body = useMemo(() => step, [step]);
@@ -126,7 +151,7 @@ export default function AssessmentPage() {
                     <div className="flex flex-wrap gap-2">{SKILLS.map((s) => <Chip key={s} on={f.skills.includes(s)} onClick={() => toggle(s)}>{s}</Chip>)}</div>
                     <div>
                       <label htmlFor="os" className="mb-1.5 block text-sm font-semibold text-ink/70">Anything else?</label>
-                      <input id="os" value={f.otherSkill} onChange={(e) => set("otherSkill", e.target.value)} placeholder="e.g. makeup, plumbing, tutoring" className={input} />
+                      <input id="os" value={f.otherSkill} onChange={(e) => set("otherSkill", e.target.value)} placeholder="e.g. I am a React developer, logo designer, tutor" className={input} />
                     </div>
                   </>)}
 
@@ -149,6 +174,7 @@ export default function AssessmentPage() {
               </motion.div>
             </AnimatePresence>
 
+            {saveError && <p role="alert" className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{saveError}</p>}
             <div className="mt-8 flex items-center justify-between">
               <button onClick={() => go(-1)} disabled={step === 0 || busy} className="flex items-center gap-1.5 font-semibold text-ink/60 transition hover:text-ink disabled:invisible">
                 <ArrowLeft size={18} /> Back

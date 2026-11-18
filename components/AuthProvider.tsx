@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { onAuthStateChanged, signOut, type User } from "firebase/auth";
 import { Loader2 } from "lucide-react";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { bootstrapUser } from "@/lib/db";
 
 type Ctx = { user: User | null; loading: boolean; logout: () => Promise<void> };
 const AuthContext = createContext<Ctx>({ user: null, loading: true, logout: async () => {} });
@@ -17,7 +18,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Fires on load with the saved session (or null), then on every login/logout.
     try {
-      return onAuthStateChanged(getFirebaseAuth(), (u) => { setUser(u); setLoading(false); });
+      return onAuthStateChanged(getFirebaseAuth(), (u) => {
+        setUser(u);
+        setLoading(false);
+        if (u) bootstrapUser(u.uid).catch((e) => console.error("bootstrap:", e));
+      });
     } catch (err) {
       console.error(err); // usually missing .env.local values
       setLoading(false);

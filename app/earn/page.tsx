@@ -1,6 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { doc, serverTimestamp, setDoc } from "firebase/firestore";
+import { useAuth } from "@/components/AuthProvider";
+import SignOutButton from "@/components/SignOutButton";
+import { useUserDoc } from "@/lib/hooks";
+import { getDb } from "@/lib/firebase";
+import { matchGigs, normalizeSkills } from "@/lib/opportunities";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { AlertTriangle, BadgeCheck, Brain, Check, ClipboardList, ExternalLink, MousePointerClick, ShieldCheck, Wallet, Zap } from "lucide-react";
 
@@ -57,34 +63,32 @@ const PLATFORMS: Platform[] = [
     note: "Search and social media evaluation. Projects start and stop, so keep other platforms open." },
 ];
 
-const TABS = [["all", "All"], ["survey", "Surveys"], ["microtask", "Microtasks"]] as const;
+const TABS = [["skills", "For my skills"], ["all", "All"], ["survey", "Surveys"], ["microtask", "Microtasks"]] as const;
 const naira = (v: number) => "₦" + Math.round(v).toLocaleString("en-NG");
 
 export default function EarnPage() {
-  const [tab, setTab] = useState<(typeof TABS)[number][0]>("all");
+  const { user } = useAuth();
+  const userDoc = useUserDoc(user?.uid);
+  const [tab, setTab] = useState<(typeof TABS)[number][0]>("skills");
   const [rate, setRate] = useState("1500");
-  const [joined, setJoined] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    try {
-      setJoined(JSON.parse(localStorage.getItem("mindbank:joined") || "{}"));
-      setRate(localStorage.getItem("mindbank:rate") || "1500");
-    } catch {}
-  }, []);
+  const joined = userDoc?.joined ?? {};
+  const a = userDoc?.assessment;
+  const skillNames = a ? normalizeSkills(a.skills, a.otherSkill) : [];
+  const gigs = a ? matchGigs(a.skills, a.otherSkill, 12) : [];
 
-  const toggle = (id: string) => {
-    const next = { ...joined, [id]: !joined[id] };
-    setJoined(next);
-    try { localStorage.setItem("mindbank:joined", JSON.stringify(next)); } catch {}
+  useEffect(() => { if (userDoc?.rate) setRate(String(userDoc.rate)); }, [userDoc?.rate]);
+
+  const save = (patch: Record<string, unknown>) => {
+    if (!user) return;
+    setDoc(doc(getDb(), "users", user.uid), { ...patch, updatedAt: serverTimestamp() }, { merge: true }).catch((e) => console.error("save:", e));
   };
-  const setRateSaved = (v: string) => {
-    const c = v.replace(/\D/g, "").slice(0, 5);
-    setRate(c);
-    try { localStorage.setItem("mindbank:rate", c); } catch {}
-  };
+  const toggle = (id: string) => save({ joined: { [id]: !joined[id] } });
+  const setRateSaved = (v: string) => setRate(v.replace(/\D/g, "").slice(0, 5));
+  const saveRate = () => { const v = Number(rate); if (v > 0) save({ rate: v }); };
 
   const r = Number(rate) || 0;
-  const list = useMemo(() => PLATFORMS.filter((p) => tab === "all" || p.kind === tab).sort((a, b) => (a.minUSD ?? 99) - (b.minUSD ?? 99)), [tab]);
+  const list = useMemo(() => PLATFORMS.filter((p) => tab !== "skills" && (tab === "all" || p.kind === tab)).sort((a, b) => (a.minUSD ?? 99) - (b.minUSD ?? 99)), [tab]);
   const count = Object.values(joined).filter(Boolean).length;
 
   return (
@@ -95,6 +99,7 @@ export default function EarnPage() {
           <div className="flex gap-2">
             <a href="/plan" className="rounded-xl bg-white px-4 py-2 text-sm font-semibold ring-1 ring-ink/15 hover:bg-paper">My plan</a>
             <a href="/dashboard" className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-violet">Log earnings</a>
+            <SignOutButton />
           </div>
         </nav>
 
@@ -102,14 +107,14 @@ export default function EarnPage() {
           <div aria-hidden className="absolute -right-16 -top-16 h-64 w-64 rounded-full bg-emerald/30 blur-3xl" />
           <div className="relative grid items-end gap-8 md:grid-cols-[1.5fr_1fr]">
             <div>
-              <h1 className="font-display text-4xl font-extrabold leading-tight sm:text-5xl">Surveys and microtasks you can start today</h1>
+              <h1 className="font-display text-4xl font-extrabold leading-tight sm:text-5xl">Ways to earn that fit you</h1>
               <p className="mt-4 max-w-xl text-white/75">These pay small amounts, but they have low payout minimums, so your first withdrawal can come quickly. Each card shows what it pays, the minimum to cash out and a link to sign up.</p>
             </div>
             <div className="rounded-3xl bg-white/10 p-5 ring-1 ring-white/15">
               <label htmlFor="rate" className="text-sm text-white/65">Naira per $1 (edit to today’s rate)</label>
               <div className="mt-2 flex items-center gap-2 rounded-xl bg-white px-4 py-2.5 text-ink">
                 <span className="font-bold text-violet">₦</span>
-                <input id="rate" inputMode="numeric" value={rate} onChange={(e) => setRateSaved(e.target.value)} className="w-full bg-transparent text-lg font-bold outline-none" />
+                <input id="rate" inputMode="numeric" value={rate} onChange={(e) => setRateSaved(e.target.value)} onBlur={saveRate} className="w-full bg-transparent text-lg font-bold outline-none" />
               </div>
               <p className="mt-2 text-xs text-white/55">Joined: {count} of {PLATFORMS.length}</p>
             </div>
@@ -129,6 +134,42 @@ export default function EarnPage() {
             </button>
           ))}
         </div>
+
+        {tab === "skills" && (
+          gigs.length ? (
+            <>
+              <p className="mt-6 text-sm text-ink/60">Matched to your skills: <span className="font-semibold text-ink">{skillNames.join(", ")}</span>. You set your own rate, so check similar listings before you price your work.</p>
+              <div className="mt-4 grid gap-5 md:grid-cols-2">
+                {gigs.map((g, i) => (
+                  <motion.article key={g.title} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }} className="rounded-3xl bg-white p-6 ring-1 ring-ink/10">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <span className="text-xs font-bold text-violet">{g.type}{g.platform ? ` · ${g.platform}` : ""}</span>
+                        <h2 className="font-display mt-1 text-xl font-bold">{g.title}</h2>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-emerald/15 px-2.5 py-1 text-xs font-bold text-emerald">{g.speed}</span>
+                    </div>
+                    <p className="mt-3 text-sm text-ink/65">{g.why}</p>
+                    <ol className="mt-4 space-y-2 text-sm text-ink/75">
+                      {g.steps.map((st, j) => (
+                        <li key={j} className="flex gap-3"><span className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-violet/10 text-xs font-bold text-violet">{j + 1}</span>{st}</li>
+                      ))}
+                    </ol>
+                    {g.url && (
+                      <a href={g.url} target="_blank" rel="noopener noreferrer" className="mt-5 flex items-center justify-center gap-2 rounded-xl bg-ink py-3 text-sm font-bold text-white transition hover:bg-violet">
+                        Open {g.platform} <ExternalLink size={15} />
+                      </a>
+                    )}
+                  </motion.article>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="mt-6 rounded-3xl bg-white p-6 text-sm text-ink/70 ring-1 ring-ink/10">
+              Add your skills in the <a href="/assessment" className="font-semibold text-violet underline">assessment</a> to see work that fits you. You can type your own, for example “React developer”.
+            </div>
+          )
+        )}
 
         <div className="mt-6 grid gap-5 md:grid-cols-2">
           <AnimatePresence mode="popLayout">
