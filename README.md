@@ -53,7 +53,13 @@ components/
 └── AuthProvider.tsx        Session context + RequireAuth guard
 
 lib/
-└── firebase.ts             Firebase init and persistence
+├── firebase.ts             Browser Firebase (auth, Firestore)
+├── firebaseAdmin.ts        Server Firebase (token check, database)
+├── db.ts                   Types, save helpers, first-sign-in setup
+├── hooks.ts                Live user document and entries
+└── planKey.ts              Fingerprint for goal + answers
+
+firestore.rules             Security rules to publish
 ```
 
 Each protected folder (`assessment`, `plan`, `earn`, `dashboard`) contains a small `layout.tsx` that wraps its page in `RequireAuth`.
@@ -66,7 +72,7 @@ Each protected folder (`assessment`, `plan`, `earn`, `dashboard`) contains a sma
 
 ```bash
 npm install
-npm install firebase framer-motion lucide-react
+npm install firebase firebase-admin framer-motion lucide-react
 ```
 
 ### 2. Environment variables
@@ -83,7 +89,14 @@ NEXT_PUBLIC_FIREBASE_APP_ID=
 GEMINI_API_KEY=
 # Optional. Defaults to gemini-2.5-flash
 GEMINI_MODEL=
+
+# Server only. Firebase console → Project settings → Service accounts → Generate new private key
+FIREBASE_PROJECT_ID=
+FIREBASE_CLIENT_EMAIL=
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
+
+Keep the private key on one line with `\n` for line breaks. Never commit it or prefix it with `NEXT_PUBLIC_`.
 
 `GEMINI_API_KEY` is server-only. Never prefix it with `NEXT_PUBLIC_`.
 
@@ -116,7 +129,7 @@ Open `http://localhost:3000`.
 | `/plan` | Signed in | AI plan and weekly actions |
 | `/earn` | Signed in | Survey and microtask platforms |
 | `/dashboard` | Signed in | Progress, charts, history |
-| `POST /api/plan` | See limitations | Generates the plan |
+| `POST /api/plan` | Signed in (token checked) | Generates and saves the plan |
 
 ---
 
@@ -130,18 +143,31 @@ const { user, loading, logout } = useAuth();
 
 ---
 
-## Where data lives today
+## Where data lives
 
-| Data | Stored in |
-| --- | --- |
-| Login session | Firebase (browser persistence) |
-| Landing goal (amount and text) | `sessionStorage` (`mindbank:draft`) |
-| Assessment answers | `sessionStorage` (`mindbank:assessment`) |
-| Goal, deadline, start date, logged entries, ticked tasks, joined platforms, dollar rate | `localStorage` (`mindbank:*` keys) |
+All user data is saved in Firestore under the signed-in user, so it follows them across devices.
 
-This data is saved on one device and browser only. See the roadmap below.
+```
+users/{uid}
+  goal          { amount, goal }
+  assessment    { status, income, skills, expenses, savings, hours, deadline, ... }
+  plan          AI plan (written by the server only)
+  planKey       fingerprint of the goal + answers the plan was built from
+  done          { "1-0": true, ... } ticked weekly actions
+  start         date the user began
+  migrated      true once old on-device data has been moved
 
----
+users/{uid}/entries/{id}
+  kind, source, amount, date, note, ts
+```
+
+- `sessionStorage` holds only the goal typed on the landing page, until the user signs in. It is then copied to the account.
+- Data from earlier versions that was kept in `localStorage` is moved into the account once, on first sign-in, then removed from the device.
+- A plan is reused while the goal and answers are unchanged. If either changes, a new plan is built.
+
+### Firestore rules
+
+Publish `firestore.rules` in the Firebase console (Firestore Database → Rules). They let each user read and write only their own data. The browser cannot write `plan` or `planKey`, only the server can.
 
 ## The AI plan
 
@@ -168,10 +194,10 @@ The `/earn` page lists survey and microtask sites from the `PLATFORMS` array at 
 
 ## Known limitations and roadmap
 
-- [ ] **Firestore.** Save the goal, assessment, plan and entries per user so data follows them across devices.
-- [ ] **Protect `/api/plan`.** The client sends its Firebase ID token and the route verifies it with `firebase-admin`. Right now anyone can call it and use your Gemini quota.
-- [ ] **Firestore security rules.** The route guard is only a convenience, because page code still reaches the browser. Real protection is server-side checks and rules.
-- [ ] Landing page: make the auth modal's Continue button go to `/auth`, and show "Dashboard" in the nav when signed in.
+- [x] **Firestore.** Goal, answers, plan, ticked tasks and entries are saved per user.
+- [x] **Protect `/api/plan`.** The route verifies the Firebase ID token and reads the answers from the database.
+- [ ] Add a per-user limit on plan rebuilds.
+- [ ] **Publish `firestore.rules`** in the Firebase console. Until you do, reads and writes may be blocked or open depending on your project mode.
 - [ ] Add a log-out button and a profile page.
 - [ ] Forgot password, Terms and Privacy pages, and a custom 404.
 - [ ] Move `PLATFORMS` to a database table so it can be updated without redeploying.
