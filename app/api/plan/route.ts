@@ -4,8 +4,6 @@ import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { planKey } from "@/lib/planKey";
 import { buildOpportunities, normalizeSkills } from "@/lib/opportunities";
 
-// export const runtime = "nodejs";
-
 /* .env.local needs GEMINI_API_KEY (optional GEMINI_MODEL) and the FIREBASE_* admin values. */
 
 type Goal = { amount: string; goal: string };
@@ -46,21 +44,23 @@ function basePlan(g: Goal, a: Assessment) {
   };
 }
 
-export async function POST(req: Request) {
+async function handle(req: Request) {
   // 1. Who is calling? Only signed-in users get a plan.
   const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   if (!token) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
 
+  // Config problems (missing or malformed key) throw here and are reported by the 500 handler below
+  const auth = adminAuth();
+  const db = adminDb();
+
   let uid: string;
-  let ref: DocumentReference;
   try {
-    uid = (await adminAuth().verifyIdToken(token)).uid;
-    ref = adminDb().collection("users").doc(uid);
+    uid = (await auth.verifyIdToken(token)).uid;
   } catch (err) {
-    console.error("auth error", err);
-    const misconfigured = err instanceof Error && err.message.startsWith("Missing FIREBASE_");
-    return NextResponse.json({ error: misconfigured ? "Server is not configured" : "Invalid session" }, { status: misconfigured ? 500 : 401 });
+    console.error("[/api/plan] token rejected:", (err as Error).message);
+    return NextResponse.json({ error: "Invalid session. Sign in again." }, { status: 401 });
   }
+  const ref: DocumentReference = db.collection("users").doc(uid);
 
   // 2. Read the saved goal and answers from the database. Never trust the request body.
   const data = (await ref.get()).data() as { goal?: Goal; assessment?: Assessment; plan?: unknown; planKey?: string } | undefined;
@@ -115,4 +115,21 @@ Give 3 saving items and up to 4 weeks of actions with 3 tasks each.`;
   // 5. Save it so the next visit (on any device) loads instantly
   await ref.set({ plan, planKey: key, planSource: source, planAt: FieldValue.serverTimestamp() }, { merge: true });
   return NextResponse.json({ plan, source });
+}
+
+export async function POST(req: Request) {
+  try {
+    return await handle(req);
+  } catch (err) {
+    const e = err as { code?: number | string; message?: string };
+    const text = String(e?.message ?? "");
+    console.error("[/api/plan]", err); // the real cause is printed in the terminal running `npm run dev`
+
+    let message = "Something went wrong on the server. Check the terminal for details.";
+    if (text.startsWith("Missing FIREBASE_")) message = `${text}. Add them to .env.local and restart the dev server.`;
+    else if (/private key/i.test(text)) message = "FIREBASE_PRIVATE_KEY is not valid. Copy it exactly from the downloaded JSON, on one line, with \\n between the lines.";
+    else if (e?.code === 5 || /NOT_FOUND/.test(text)) message = "Firestore database not found. In the Firebase console go to Build → Firestore Database → Create database.";
+    else if (e?.code === 7 || /PERMISSION_DENIED/.test(text)) message = "The service account can't use Firestore. Check the key is from the same project and the Cloud Firestore API is enabled.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 }

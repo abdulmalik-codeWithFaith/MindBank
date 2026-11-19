@@ -8,8 +8,10 @@ function app() {
   if (!FIREBASE_PROJECT_ID || !FIREBASE_CLIENT_EMAIL || !FIREBASE_PRIVATE_KEY) {
     throw new Error("Missing FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL or FIREBASE_PRIVATE_KEY");
   }
+  const privateKey = FIREBASE_PRIVATE_KEY.trim().replace(/^"|"$/g, "").replace(/\\n/g, "\n");
+  if (!privateKey.includes("BEGIN PRIVATE KEY")) throw new Error("FIREBASE_PRIVATE_KEY is missing its BEGIN PRIVATE KEY header (invalid private key)");
   return initializeApp({
-    credential: cert({ projectId: FIREBASE_PROJECT_ID, clientEmail: FIREBASE_CLIENT_EMAIL, privateKey: FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n") }),
+    credential: cert({ projectId: FIREBASE_PROJECT_ID, clientEmail: FIREBASE_CLIENT_EMAIL, privateKey }),
   });
 }
 export const adminAuth = () => getAuth(app());
