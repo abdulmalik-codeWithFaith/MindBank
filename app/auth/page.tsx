@@ -21,11 +21,15 @@ const friendly = (code?: string) => {
     case "auth/wrong-password":
     case "auth/user-not-found": return "Email or password is incorrect.";
     case "auth/weak-password": return "Use a stronger password (8+ characters).";
+    case "auth/invalid-email": return "That email address doesn’t look right.";
+    case "auth/operation-not-allowed": return "Email/password sign-in isn’t turned on in Firebase yet. Enable it under Authentication → Sign-in method.";
+    case "auth/unauthorized-domain": return "This domain isn’t allowed in Firebase. Add it under Authentication → Settings → Authorized domains.";
+    case "auth/configuration-not-found": return "Firebase Authentication isn’t set up for this project yet. Click Get started in the Authentication section.";
     case "auth/too-many-requests": return "Too many attempts. Wait a moment and try again.";
     case "auth/network-request-failed": return "Network problem. Check your connection and try again.";
     case "auth/popup-closed-by-user":
     case "auth/cancelled-popup-request": return "";
-    default: return "We couldn’t sign you in. Please try again.";
+    default: return process.env.NODE_ENV !== "production" && code ? `Sign-in failed (${code}).` : "We couldn’t sign you in. Please try again.";
   }
 };
 
