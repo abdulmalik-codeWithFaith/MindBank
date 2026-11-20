@@ -4,6 +4,8 @@ import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { planKey } from "@/lib/planKey";
 import { buildOpportunities, normalizeSkills } from "@/lib/opportunities";
 
+// export const runtime = "nodejs";
+
 /* .env.local needs GEMINI_API_KEY (optional GEMINI_MODEL) and the FIREBASE_* admin values. */
 
 type Goal = { amount: string; goal: string };
@@ -42,6 +44,33 @@ function basePlan(g: Goal, a: Assessment) {
         : [`Save or earn ₦${n(weekly)} this week`, `Follow up on every offer or application for: ${lead}`, "Review spending and cut one more cost"],
     })),
   };
+}
+
+/** Calls Gemini with a timeout, retries on temporary overload (503/429), then tries a lighter model. */
+async function askGemini(prompt: string, key: string): Promise<unknown> {
+  const primary = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const models = [primary, primary, "gemini-2.5-flash-lite"];
+  let last = "";
+  for (let i = 0; i < models.length; i++) {
+    try {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${models[i]}:generateContent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json", temperature: 0.6 } }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        return JSON.parse(json.candidates?.[0]?.content?.parts?.[0]?.text ?? "");
+      }
+      last = `Gemini ${res.status} (${models[i]})`;
+      if (![429, 500, 502, 503, 504].includes(res.status)) break; // not temporary, so don't retry
+    } catch (e) {
+      last = `${(e as Error).message} (${models[i]})`;
+    }
+    await new Promise((r) => setTimeout(r, 800 * (i + 1)));
+  }
+  throw new Error(last || "Gemini failed");
 }
 
 async function handle(req: Request) {
@@ -90,31 +119,27 @@ Return ONLY JSON:
 "weeklyActions":[{"week":number,"tasks":[string]}]}
 Give 3 saving items and up to 4 weeks of actions with 3 tasks each.`;
     try {
-      const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": gemini },
-        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json", temperature: 0.6 } }),
-      });
-      if (!res.ok) throw new Error(`Gemini ${res.status}`);
-      const json = await res.json();
-      const p = JSON.parse(json.candidates?.[0]?.content?.parts?.[0]?.text ?? "");
+      const p = (await askGemini(prompt, gemini)) as {
+        summary?: string; feasibility?: string; weeklyTarget?: number;
+        savingStrategy?: typeof plan.savingStrategy; weeklyActions?: typeof plan.weeklyActions;
+      };
       if (p?.summary && Array.isArray(p.savingStrategy) && Array.isArray(p.weeklyActions)) {
         plan.summary = String(p.summary);
-        if (["on_track", "stretch", "needs_more_time"].includes(p.feasibility)) plan.feasibility = p.feasibility;
+        if (p.feasibility === "on_track" || p.feasibility === "stretch" || p.feasibility === "needs_more_time") plan.feasibility = p.feasibility;
         if (typeof p.weeklyTarget === "number" && p.weeklyTarget > 0) plan.weeklyTarget = Math.round(p.weeklyTarget);
         plan.savingStrategy = p.savingStrategy;
         plan.weeklyActions = p.weeklyActions;
         source = "gemini";
       }
     } catch (err) {
-      console.error("plan error", err);
+      console.error("Gemini unavailable, using the built-in plan:", (err as Error).message);
     }
   }
 
   // 5. Save it so the next visit (on any device) loads instantly
-  await ref.set({ plan, planKey: key, planSource: source, planAt: FieldValue.serverTimestamp() }, { merge: true });
-  return NextResponse.json({ plan, source });
+  const clean = JSON.parse(JSON.stringify(plan)); // drops undefined fields (Firestore rejects them)
+  await ref.set({ plan: clean, planKey: key, planSource: source, planAt: FieldValue.serverTimestamp() }, { merge: true });
+  return NextResponse.json({ plan: clean, source });
 }
 
 export async function POST(req: Request) {

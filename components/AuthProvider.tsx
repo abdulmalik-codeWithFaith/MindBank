@@ -39,19 +39,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={{ user, loading, logout }}>{children}</AuthContext.Provider>;
 }
 
-/** Wrap any page that needs a signed-in user. */
+/**
+ * Wrap any page that needs a signed-in user.
+ * The page is always rendered (hidden until the session is confirmed), so Next.js can
+ * validate the route. Signed-out visitors are sent to /auth.
+ */
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  const ready = !loading && !!user;
 
   useEffect(() => { if (!loading && !user) router.replace("/auth"); }, [loading, user, router]);
 
-  if (loading || !user) {
-    return (
-      <main className="grid min-h-screen place-items-center" role="status" aria-label="Checking your session">
-        <Loader2 className="animate-spin text-violet" />
-      </main>
-    );
-  }
-  return <>{children}</>;
+  return (
+    <>
+      {!ready && (
+        <main className="grid min-h-screen place-items-center" role="status" aria-label="Checking your session">
+          <Loader2 className="animate-spin text-violet" />
+        </main>
+      )}
+      <div hidden={!ready}>{children}</div>
+    </>
+  );
 }

@@ -134,7 +134,9 @@ export function matchGigs(skills: string[] = [], other = "", limit = 12): Gig[] 
 }
 
 const toOpportunity = (g: Gig): Plan["opportunities"][number] => ({
-  title: g.title, type: g.type, effort: "Medium", steps: g.steps, url: g.url, platform: g.platform, speed: g.speed,
+  title: g.title, type: g.type, effort: "Medium", steps: g.steps, speed: g.speed,
+  ...(g.url ? { url: g.url } : {}),
+  ...(g.platform ? { platform: g.platform } : {}),
 });
 
 /** Plan opportunities: skill-based gigs first, then one quick-start item for surveys and microtasks. */
