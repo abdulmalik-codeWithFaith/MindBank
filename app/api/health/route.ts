@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebaseAdmin";
 
 /**
  * Temporary setup check. Open /api/health on your live site.
- * It reports only true/false and short statuses, never values.
+ * It reports only true/false and short statuses, never key values.
  * Delete this file once everything works.
  */
 export async function GET() {
@@ -20,6 +19,7 @@ export async function GET() {
   let admin = "ok";
   let firestore = "not checked";
   try {
+    const { adminDb } = await import("@/lib/firebaseAdmin"); // a load failure is caught below, not a crash
     const db = adminDb();
     try {
       await db.collection("_health").limit(1).get();
@@ -31,10 +31,11 @@ export async function GET() {
         : "error (see the Vercel logs)";
     }
   } catch (e) {
-    const m = (e as Error).message;
+    const m = (e as Error).message ?? "";
     admin = m.startsWith("Missing FIREBASE_") ? "missing variables"
       : /private key/i.test(m) ? "private key is invalid"
-      : "init failed (see the Vercel logs)";
+      : /Cannot find module|Failed to load/i.test(m) ? `firebase-admin failed to load: ${m.slice(0, 160)}`
+      : `init failed: ${m.slice(0, 160)}`;
   }
 
   return NextResponse.json({ env, admin, firestore }, { headers: { "Cache-Control": "no-store" } });

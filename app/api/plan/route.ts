@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
-import { FieldValue, type DocumentReference } from "firebase-admin/firestore";
-import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
+import type { DocumentReference } from "firebase-admin/firestore";
 import { planKey } from "@/lib/planKey";
 import { buildOpportunities, normalizeSkills } from "@/lib/opportunities";
 
@@ -80,6 +79,7 @@ async function handle(req: Request) {
   if (!token) return NextResponse.json({ error: "Sign in required" }, { status: 401 });
 
   // Config problems (missing or malformed key) throw here and are reported by the 500 handler below
+  const { adminAuth, adminDb } = await import("@/lib/firebaseAdmin");
   const auth = adminAuth();
   const db = adminDb();
 
@@ -138,6 +138,7 @@ Give 3 saving items and up to 4 weeks of actions with 3 tasks each.`;
   }
 
   // 5. Save it so the next visit (on any device) loads instantly
+  const { FieldValue } = await import("firebase-admin/firestore");
   const clean = JSON.parse(JSON.stringify(plan)); // drops undefined fields (Firestore rejects them)
   await ref.set({ plan: clean, planKey: key, planSource: source, planAt: FieldValue.serverTimestamp() }, { merge: true });
   return NextResponse.json({ plan: clean, source });
@@ -153,7 +154,8 @@ export async function POST(req: Request) {
 
     let code = "UNKNOWN";
     let message = "Something went wrong on the server. Check the logs for details.";
-    if (text.startsWith("Missing FIREBASE_")) { code = "ENV_MISSING"; message = `${text}. Add them to the environment variables and redeploy.`; }
+    if (e?.code === "MODULE_NOT_FOUND" || /Cannot find module|Failed to load external module/i.test(text)) { code = "ADMIN_LOAD"; message = "firebase-admin could not be loaded. Add serverExternalPackages: [\"firebase-admin\"] to next.config.ts and check it is in package.json."; }
+    else if (text.startsWith("Missing FIREBASE_")) { code = "ENV_MISSING"; message = `${text}. Add them to the environment variables and redeploy.`; }
     else if (/private key/i.test(text)) { code = "KEY_INVALID"; message = "FIREBASE_PRIVATE_KEY is not valid. Copy it exactly from the downloaded JSON, with \\n between the lines."; }
     else if (e?.code === 5 || /NOT_FOUND/.test(text)) { code = "DB_NOT_FOUND"; message = "Firestore database not found. Create it in the Firebase console (Build → Firestore Database)."; }
     else if (e?.code === 7 || /PERMISSION_DENIED/.test(text)) { code = "DB_PERMISSION"; message = "The service account can't use Firestore. Check the key is from the same project."; }
