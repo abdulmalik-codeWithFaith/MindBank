@@ -4,7 +4,6 @@ import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { planKey } from "@/lib/planKey";
 import { buildOpportunities, normalizeSkills } from "@/lib/opportunities";
 
-// export const runtime = "nodejs";
 
 /* .env.local needs GEMINI_API_KEY (optional GEMINI_MODEL) and the FIREBASE_* admin values. */
 
