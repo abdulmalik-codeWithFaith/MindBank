@@ -4,7 +4,7 @@ import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { planKey } from "@/lib/planKey";
 import { buildOpportunities, normalizeSkills } from "@/lib/opportunities";
 
-export const runtime = "nodejs";
+// export const runtime = "nodejs";
 export const maxDuration = 60; // seconds. Plan building can take longer than a host's 10s default
 
 /* .env.local needs GEMINI_API_KEY (optional GEMINI_MODEL) and the FIREBASE_* admin values. */
