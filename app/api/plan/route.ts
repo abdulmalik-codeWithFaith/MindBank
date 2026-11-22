@@ -4,6 +4,8 @@ import { adminAuth, adminDb } from "@/lib/firebaseAdmin";
 import { planKey } from "@/lib/planKey";
 import { buildOpportunities, normalizeSkills } from "@/lib/opportunities";
 
+export const runtime = "nodejs";
+export const maxDuration = 60; // seconds. Plan building can take longer than a host's 10s default
 
 /* .env.local needs GEMINI_API_KEY (optional GEMINI_MODEL) and the FIREBASE_* admin values. */
 
@@ -56,7 +58,7 @@ async function askGemini(prompt: string, key: string): Promise<unknown> {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": key },
         body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }], generationConfig: { responseMimeType: "application/json", temperature: 0.6 } }),
-        signal: AbortSignal.timeout(12000),
+        signal: AbortSignal.timeout(9000),
       });
       if (res.ok) {
         const json = await res.json();
@@ -147,13 +149,17 @@ export async function POST(req: Request) {
   } catch (err) {
     const e = err as { code?: number | string; message?: string };
     const text = String(e?.message ?? "");
-    console.error("[/api/plan]", err); // the real cause is printed in the terminal running `npm run dev`
+    console.error("[/api/plan]", err); // the real cause is in the terminal (local) or the host's function logs (live)
 
-    let message = "Something went wrong on the server. Check the terminal for details.";
-    if (text.startsWith("Missing FIREBASE_")) message = `${text}. Add them to .env.local and restart the dev server.`;
-    else if (/private key/i.test(text)) message = "FIREBASE_PRIVATE_KEY is not valid. Copy it exactly from the downloaded JSON, on one line, with \\n between the lines.";
-    else if (e?.code === 5 || /NOT_FOUND/.test(text)) message = "Firestore database not found. In the Firebase console go to Build → Firestore Database → Create database.";
-    else if (e?.code === 7 || /PERMISSION_DENIED/.test(text)) message = "The service account can't use Firestore. Check the key is from the same project and the Cloud Firestore API is enabled.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    let code = "UNKNOWN";
+    let message = "Something went wrong on the server. Check the logs for details.";
+    if (text.startsWith("Missing FIREBASE_")) { code = "ENV_MISSING"; message = `${text}. Add them to the environment variables and redeploy.`; }
+    else if (/private key/i.test(text)) { code = "KEY_INVALID"; message = "FIREBASE_PRIVATE_KEY is not valid. Copy it exactly from the downloaded JSON, with \\n between the lines."; }
+    else if (e?.code === 5 || /NOT_FOUND/.test(text)) { code = "DB_NOT_FOUND"; message = "Firestore database not found. Create it in the Firebase console (Build → Firestore Database)."; }
+    else if (e?.code === 7 || /PERMISSION_DENIED/.test(text)) { code = "DB_PERMISSION"; message = "The service account can't use Firestore. Check the key is from the same project."; }
+
+    // Live site: generic text for visitors plus a short code for you. Local: the full message.
+    const isProd = process.env.NODE_ENV === "production";
+    return NextResponse.json({ error: isProd ? "Server error" : message, code }, { status: 500 });
   }
 }

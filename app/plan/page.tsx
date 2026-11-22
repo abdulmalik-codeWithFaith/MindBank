@@ -55,12 +55,17 @@ export default function PlanPage() {
         const idToken = await user.getIdToken();
         const res = await fetch("/api/plan", { method: "POST", headers: { Authorization: `Bearer ${idToken}` } });
         const json = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(json?.error || `Request failed (${res.status})`);
+        if (!res.ok) throw Object.assign(new Error(json?.error || `Request failed (${res.status})`), { code: json?.code as string | undefined });
         setFresh(json.plan as Plan);
       } catch (e) {
         const detail = e instanceof Error ? e.message : "";
-        // Developers see the real cause; visitors see a friendly message
-        setError(process.env.NODE_ENV !== "production" && detail ? detail : "We couldn’t build your plan. Check your connection and try again.");
+        const code = (e as { code?: string }).code;
+        // Developers see the real cause; visitors see a friendly message with a short code to report
+        setError(
+          process.env.NODE_ENV !== "production" && detail
+            ? detail
+            : `We couldn’t build your plan right now. Please try again in a minute.${code ? ` (Error: ${code})` : ""}`,
+        );
       }
     })();
   }, [user, key, plan, attempt]);
