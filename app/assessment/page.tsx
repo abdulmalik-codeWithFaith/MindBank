@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useAuth } from "@/components/AuthProvider";
-import { useUserDoc } from "@/lib/hooks";
-import { saveSetup } from "@/lib/db";
+import { saveSetup, useUserDoc } from "@/lib/store";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { ArrowLeft, ArrowRight, Brain, Briefcase, Check, Clock, Loader2, PiggyBank, Sparkles, Target, Wallet } from "lucide-react";
@@ -52,28 +50,16 @@ export default function AssessmentPage() {
   const [goal, setGoal] = useState({ amount: "", goal: "" });
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState("");
-  const { user } = useAuth();
-  const userDoc = useUserDoc(user?.uid);
+  const userDoc = useUserDoc();
   const hydrated = useRef(false);
 
-  useEffect(() => {
-    // TODO: if there is no authenticated user, router.replace("/auth")
-    try {
-      const d = sessionStorage.getItem("mindbank:draft");
-      if (d) setGoal(JSON.parse(d));
-      const a = sessionStorage.getItem("mindbank:assessment");
-      if (a) setF({ ...empty, ...JSON.parse(a) });
-    } catch {}
-  }, []);
-
+  // Load the saved goal and any earlier answers (once)
   useEffect(() => {
     if (userDoc === undefined) return;
-    let hasDraft = false;
-    try { hasDraft = !!sessionStorage.getItem("mindbank:draft"); } catch {}
-    if (userDoc?.goal && !hasDraft) setGoal(userDoc.goal); // a fresh goal typed on the landing page wins
+    if (userDoc.goal) setGoal(userDoc.goal);
     if (!hydrated.current) {
       hydrated.current = true;
-      if (userDoc?.assessment) setF({ ...empty, ...userDoc.assessment });
+      if (userDoc.assessment) setF({ ...empty, ...userDoc.assessment });
     }
   }, [userDoc]);
 
@@ -96,12 +82,10 @@ export default function AssessmentPage() {
 
   const go = (d: number) => { setDir(d); setStep((s) => s + d); };
   const finish = async () => {
-    if (!user) return;
     if (!goal.amount) { setSaveError("Enter your amount and goal on the home page first."); return; }
     setBusy(true); setSaveError("");
     try {
-      await saveSetup(user.uid, goal, f);
-      try { sessionStorage.removeItem("mindbank:draft"); } catch {}
+      saveSetup(goal, f);
       router.push("/plan");
     } catch (err) {
       console.error("save setup:", err);

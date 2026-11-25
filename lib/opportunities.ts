@@ -1,4 +1,4 @@
-import type { Plan } from "@/lib/db";
+import type { Plan } from "@/lib/store";
 
 /** A skill-based way to earn. No made-up pay figures: freelance rates depend on you and the client. */
 export type Gig = {

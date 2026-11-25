@@ -2,13 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { doc, setDoc } from "firebase/firestore";
-import { useAuth } from "@/components/AuthProvider";
-import SignOutButton from "@/components/SignOutButton";
-import { useUserDoc } from "@/lib/hooks";
-import { getDb } from "@/lib/firebase";
+import { saveDoc, savePlan, useUserDoc, type Plan } from "@/lib/store";
 import { planKey } from "@/lib/planKey";
-import type { Plan } from "@/lib/db";
 import { MotionConfig, motion } from "framer-motion";
 import { AlertCircle, ArrowUpRight, Brain, CalendarCheck, Check, Gauge, Loader2, PiggyBank, RefreshCw, Rocket, Target, TrendingUp } from "lucide-react";
 
@@ -22,8 +17,7 @@ const MESSAGES = ["Reading your numbers", "Matching your skills", "Finding ways 
 
 export default function PlanPage() {
   const router = useRouter();
-  const { user } = useAuth();
-  const userDoc = useUserDoc(user?.uid);
+  const userDoc = useUserDoc();
   const [fresh, setFresh] = useState<Plan | null>(null); // plan returned by the server this visit
   const [error, setError] = useState("");
   const [msg, setMsg] = useState(0);
@@ -43,24 +37,27 @@ export default function PlanPage() {
     else if (!userDoc.assessment) router.replace("/assessment");
   }, [userDoc, router]);
 
-  // No matching saved plan: ask the server to build one (it reads the answers from the database)
+  // No matching saved plan: ask the server to build one, then keep it on this device
   useEffect(() => {
-    if (!user || !key || plan) return;
+    if (!userDoc?.goal || !userDoc.assessment || !key || plan) return;
     const token = `${key}#${attempt}`;
     if (requested.current === token) return;
     requested.current = token;
     setError("");
     (async () => {
       try {
-        const idToken = await user.getIdToken();
-        const res = await fetch("/api/plan", { method: "POST", headers: { Authorization: `Bearer ${idToken}` } });
+        const res = await fetch("/api/plan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ goal: userDoc.goal, assessment: userDoc.assessment }),
+        });
         const json = await res.json().catch(() => ({}));
         if (!res.ok) throw Object.assign(new Error(json?.error || `Request failed (${res.status})`), { code: json?.code as string | undefined });
         setFresh(json.plan as Plan);
+        savePlan(json.plan as Plan, key);
       } catch (e) {
         const detail = e instanceof Error ? e.message : "";
         const code = (e as { code?: string }).code;
-        // Developers see the real cause; visitors see a friendly message with a short code to report
         setError(
           process.env.NODE_ENV !== "production" && detail
             ? detail
@@ -68,16 +65,13 @@ export default function PlanPage() {
         );
       }
     })();
-  }, [user, key, plan, attempt]);
+  }, [userDoc, key, plan, attempt]);
 
   const load = () => { setFresh(null); setError(""); setAttempt((a) => a + 1); };
 
   useEffect(() => { if (plan || error) return; const t = setInterval(() => setMsg((m) => (m + 1) % MESSAGES.length), 1400); return () => clearInterval(t); }, [plan, error]);
 
-  const toggle = (k: string) => {
-    if (!user) return;
-    setDoc(doc(getDb(), "users", user.uid), { done: { [k]: !done[k] } }, { merge: true }).catch((e) => console.error("save task:", e));
-  };
+  const toggle = (k: string) => saveDoc({ done: { ...done, [k]: !done[k] } });
 
   const total = plan?.weeklyActions.reduce((s, w) => s + w.tasks.length, 0) ?? 0;
   const finished = Object.values(done).filter(Boolean).length;
@@ -114,7 +108,6 @@ export default function PlanPage() {
           <div className="flex items-center gap-2">
             <a href="/earn" className="rounded-xl px-3 py-2 text-sm font-semibold text-ink/70 hover:bg-ink/5">Ways to earn</a>
             <a href="/dashboard" className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-violet">Open dashboard</a>
-            <SignOutButton />
           </div>
         </nav>
 

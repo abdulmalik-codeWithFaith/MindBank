@@ -7,8 +7,6 @@ const nextConfig: NextConfig = {
   },
   cacheComponents: true,
   partialPrefetching: true,
-  // Load firebase-admin from node_modules at runtime instead of bundling it (needed on Vercel)
-  serverExternalPackages: ["firebase-admin"],
   turbopack: {
     rules: {
       "*.css": {

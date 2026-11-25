@@ -2,10 +2,7 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { useAuth } from "@/components/AuthProvider";
-import SignOutButton from "@/components/SignOutButton";
-import { useEntries, useUserDoc } from "@/lib/hooks";
-import { addEntry, removeEntry, type Entry } from "@/lib/db";
+import { addEntry, removeEntry, useEntries, useUserDoc, type Entry } from "@/lib/store";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { BarChart3, Brain, CalendarClock, Flame, ListChecks, PartyPopper, PiggyBank, Plus, Target, Trash2, TrendingUp, Wallet } from "lucide-react";
 
@@ -18,9 +15,8 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 export default function DashboardPage() {
   const router = useRouter();
-  const { user } = useAuth();
-  const userDoc = useUserDoc(user?.uid);
-  const entriesRaw = useEntries(user?.uid);
+  const userDoc = useUserDoc();
+  const entriesRaw = useEntries();
   const entries = useMemo(() => entriesRaw ?? [], [entriesRaw]);
   const [now, setNow] = useState(0); // set after mount so prerender never reads the clock
   const [kind, setKind] = useState<Entry["kind"]>("Earned");
@@ -86,11 +82,11 @@ export default function DashboardPage() {
   const add = (e: FormEvent) => {
     e.preventDefault();
     const v = Number(amount.replace(/\D/g, ""));
-    if (!v || !user) return;
+    if (!v) return;
     const before = target ? Math.floor((total / target) * 100) : 0;
     const after = target ? Math.floor(((total + v) / target) * 100) : 0;
     const hit = MILESTONES.filter((m) => before < m && after >= m).pop();
-    addEntry(user.uid, { id: crypto.randomUUID(), kind, source, amount: v, date: today(), note: note.trim(), ts: Date.now() }).catch((err) => console.error("save entry:", err));
+    addEntry({ id: crypto.randomUUID(), kind, source, amount: v, date: today(), note: note.trim(), ts: Date.now() });
     setAmount(""); setNote("");
     if (hit) { setCelebrate(hit); setTimeout(() => setCelebrate(null), 4500); }
   };
@@ -114,7 +110,6 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2">
             <a href="/earn" className="rounded-xl px-3 py-2 text-sm font-semibold text-ink/70 hover:bg-ink/5">Ways to earn</a>
             <a href="/plan" className="flex items-center gap-1.5 rounded-xl bg-white px-4 py-2 text-sm font-semibold ring-1 ring-ink/15 hover:bg-paper"><ListChecks size={16} /> My plan</a>
-            <SignOutButton />
           </div>
         </nav>
 
@@ -222,7 +217,7 @@ export default function DashboardPage() {
                       </div>
                       <div className="flex items-center gap-3">
                         <span className="font-display font-bold text-emerald">+{naira(e.amount)}</span>
-                        <button aria-label={`Delete ${e.source} entry`} onClick={() => user && removeEntry(user.uid, e.id).catch((err) => console.error("delete entry:", err))} className="text-ink/35 transition hover:text-red-600"><Trash2 size={16} /></button>
+                        <button aria-label={`Delete ${e.source} entry`} onClick={() => removeEntry(e.id)} className="text-ink/35 transition hover:text-red-600"><Trash2 size={16} /></button>
                       </div>
                     </motion.li>
                   ))}
@@ -232,7 +227,7 @@ export default function DashboardPage() {
           </section>
         </div>
 
-        <p className="mt-10 pb-6 text-center text-xs text-ink/45">Your entries are saved to your account. MindBank doesn’t lend money.</p>
+        <p className="mt-10 pb-6 text-center text-xs text-ink/45">Your entries are saved on this device. MindBank doesn’t lend money.</p>
       </main>
     </MotionConfig>
   );

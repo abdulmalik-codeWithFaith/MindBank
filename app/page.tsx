@@ -2,8 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import AuthModal from "@/components/AuthModal";
-import { useAuth } from "@/components/AuthProvider";
+import { saveGoal } from "@/lib/store";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import {
   ArrowRight, BarChart3, Brain, CalendarCheck, CheckCircle2, Gamepad2, Landmark,
@@ -44,21 +43,14 @@ const fmt = (v: string) => (v ? Number(v).toLocaleString("en-NG") : "");
 
 export default function Home() {
   const router = useRouter();
-  const { user } = useAuth();
   const [amount, setAmount] = useState("100000");
   const [goal, setGoal] = useState("");
-  const [authOpen, setAuthOpen] = useState(false);
   const [menu, setMenu] = useState(false);
 
-  // Signed-in visitors skip the modal and go straight to the app
-  const openAuth = (dest = "/assessment") => {
-    if (user) router.push(dest);
-    else setAuthOpen(true);
-  };
-
   const withdraw = () => {
-    try { sessionStorage.setItem("mindbank:draft", JSON.stringify({ amount, goal })); } catch {}
-    openAuth();
+    if (!amount) return;
+    saveGoal({ amount, goal: goal.trim() });
+    router.push("/assessment");
   };
 
   return (
@@ -77,8 +69,8 @@ export default function Home() {
               ))}
             </nav>
             <div className="hidden items-center gap-3 md:flex">
-              <button onClick={() => openAuth("/dashboard")} className="text-sm font-semibold text-ink/80 hover:text-ink">{user ? "Dashboard" : "Log in"}</button>
-              <button onClick={() => openAuth()} className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet">{user ? "Continue" : "Get started"}</button>
+              <a href="/dashboard" className="text-sm font-semibold text-ink/80 hover:text-ink">Dashboard</a>
+              <a href="#top" className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet">Get started</a>
             </div>
             <button aria-label="Toggle menu" className="md:hidden" onClick={() => setMenu(!menu)}>{menu ? <X /> : <Menu />}</button>
           </div>
@@ -88,7 +80,7 @@ export default function Home() {
                 {[["How it works", "#how"], ["Features", "#features"], ["Ways to earn", "#earn"]].map(([l, h]) => (
                   <a key={h} href={h} onClick={() => setMenu(false)} className="font-medium">{l}</a>
                 ))}
-                <button onClick={() => { setMenu(false); openAuth(); }} className="rounded-xl bg-ink py-2.5 font-semibold text-white">Get started</button>
+                <a href="#top" onClick={() => setMenu(false)} className="rounded-xl bg-ink py-2.5 text-center font-semibold text-white">Get started</a>
               </motion.div>
             )}
           </AnimatePresence>
@@ -273,7 +265,6 @@ export default function Home() {
           <p className="mt-2">MindBank doesn’t lend money. Earning estimates are guidance, not guarantees.</p>
         </footer>
 
-        <AuthModal open={authOpen} onClose={() => setAuthOpen(false)} amount={amount} />
       </main>
     </MotionConfig>
   );

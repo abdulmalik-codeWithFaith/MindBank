@@ -1,11 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { doc, serverTimestamp, setDoc } from "firebase/firestore";
-import { useAuth } from "@/components/AuthProvider";
-import SignOutButton from "@/components/SignOutButton";
-import { useUserDoc } from "@/lib/hooks";
-import { getDb } from "@/lib/firebase";
+import { saveDoc, useUserDoc } from "@/lib/store";
 import { matchGigs, normalizeSkills } from "@/lib/opportunities";
 import { AnimatePresence, MotionConfig, motion } from "framer-motion";
 import { AlertTriangle, BadgeCheck, Brain, Check, ClipboardList, ExternalLink, MousePointerClick, ShieldCheck, Wallet, Zap } from "lucide-react";
@@ -67,8 +63,7 @@ const TABS = [["skills", "For my skills"], ["all", "All"], ["survey", "Surveys"]
 const naira = (v: number) => "₦" + Math.round(v).toLocaleString("en-NG");
 
 export default function EarnPage() {
-  const { user } = useAuth();
-  const userDoc = useUserDoc(user?.uid);
+  const userDoc = useUserDoc();
   const [tab, setTab] = useState<(typeof TABS)[number][0]>("skills");
   const [rate, setRate] = useState("1500");
 
@@ -79,13 +74,9 @@ export default function EarnPage() {
 
   useEffect(() => { if (userDoc?.rate) setRate(String(userDoc.rate)); }, [userDoc?.rate]);
 
-  const save = (patch: Record<string, unknown>) => {
-    if (!user) return;
-    setDoc(doc(getDb(), "users", user.uid), { ...patch, updatedAt: serverTimestamp() }, { merge: true }).catch((e) => console.error("save:", e));
-  };
-  const toggle = (id: string) => save({ joined: { [id]: !joined[id] } });
+  const toggle = (id: string) => saveDoc({ joined: { ...joined, [id]: !joined[id] } });
   const setRateSaved = (v: string) => setRate(v.replace(/\D/g, "").slice(0, 5));
-  const saveRate = () => { const v = Number(rate); if (v > 0) save({ rate: v }); };
+  const saveRate = () => { const v = Number(rate); if (v > 0) saveDoc({ rate: v }); };
 
   const r = Number(rate) || 0;
   const list = useMemo(() => PLATFORMS.filter((p) => tab !== "skills" && (tab === "all" || p.kind === tab)).sort((a, b) => (a.minUSD ?? 99) - (b.minUSD ?? 99)), [tab]);
@@ -99,7 +90,6 @@ export default function EarnPage() {
           <div className="flex gap-2">
             <a href="/plan" className="rounded-xl bg-white px-4 py-2 text-sm font-semibold ring-1 ring-ink/15 hover:bg-paper">My plan</a>
             <a href="/dashboard" className="rounded-xl bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-violet">Log earnings</a>
-            <SignOutButton />
           </div>
         </nav>
 

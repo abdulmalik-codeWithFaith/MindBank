@@ -2,24 +2,18 @@
 
 **Withdraw money from your mind to your bank account.**
 
-MindBank AI helps people turn the amount of money they imagine into a realistic plan to save and earn it, without borrowing. A user enters an amount and a goal, answers a short financial assessment, and gets a personalized plan, a list of quick ways to earn (surveys and microtasks), and a dashboard to track progress.
-
-MindBank does not lend money.
-
----
+MindBank AI turns the amount of money a person imagines into a realistic plan to save and earn it, without borrowing. MindBank does not lend money.
 
 ## How it works
 
-1. **Think of an amount.** Visitors enter an amount (for example ₦100,000) and what they want to spend it on. No account needed.
-2. **Withdraw my money.** Clicking the button sends them to log in or create an account.
+1. **Think of an amount.** Enter an amount (for example ₦100,000) and what it is for.
+2. **Withdraw my money.** Continue to a short financial assessment.
 3. **Answer the assessment.** Income, skills, expenses, savings, free time and deadline.
-4. **Get an AI plan.** Saving strategy, ways to earn and weekly actions.
-5. **Earn.** Survey and microtask platforms with links, pay and payout minimums.
+4. **Get an AI plan.** Saving strategy, ways to earn that fit the person's skills, and weekly actions.
+5. **Earn.** Skill-based work plus survey and microtask sites, with links.
 6. **Track progress.** Log earnings and savings and watch the goal ring fill.
 
-Only signed-in users can open the assessment, plan, earn page and dashboard.
-
----
+There are no accounts. Everything is saved in the visitor's own browser.
 
 ## Tech stack
 
@@ -29,197 +23,75 @@ Only signed-in users can open the assessment, plan, earn page and dashboard.
 | Styling | Tailwind CSS v4 |
 | Animation | Framer Motion |
 | Icons | lucide-react |
-| Auth | Firebase Authentication (email/password and Google) |
-| AI | Google Gemini API (REST) |
-| Fonts | Bricolage Grotesque and DM Sans via `next/font` |
-
----
+| AI | Google Gemini API (REST, server side) |
 
 ## Project structure
 
 ```
 app/
-├── layout.tsx              Root layout, fonts, AuthProvider
-├── globals.css             Tailwind theme, colors, shared utilities
+├── layout.tsx              Root layout and fonts
+├── globals.css             Tailwind theme and shared utilities
 ├── page.tsx                Landing page
-├── auth/page.tsx           Log in / create account
-├── assessment/             Financial questions (4 steps)
-├── plan/                   AI-generated plan
-├── earn/                   Surveys and microtasks
-├── dashboard/              Progress tracker
-└── api/plan/route.ts       Gemini route (with fallback plan)
-
-components/
-└── AuthProvider.tsx        Session context + RequireAuth guard
+├── assessment/page.tsx     Financial questions (4 steps)
+├── plan/page.tsx           AI plan
+├── earn/page.tsx           Skill gigs, surveys and microtasks
+├── dashboard/page.tsx      Progress tracker
+└── api/plan/route.ts       Builds the plan (Gemini, with fallback)
 
 lib/
-├── firebase.ts             Browser Firebase (auth, Firestore)
-├── firebaseAdmin.ts        Server Firebase (token check, database)
-├── db.ts                   Types, save helpers, first-sign-in setup
-├── hooks.ts                Live user document and entries
+├── store.ts                Saved data (browser) and hooks
+├── opportunities.ts        Skill-to-work catalog
 └── planKey.ts              Fingerprint for goal + answers
-
-firestore.rules             Security rules to publish
 ```
-
-Each protected folder (`assessment`, `plan`, `earn`, `dashboard`) contains a small `layout.tsx` that wraps its page in `RequireAuth`.
-
----
 
 ## Getting started
 
-### 1. Install
-
 ```bash
 npm install
-npm install firebase firebase-admin framer-motion lucide-react
 ```
 
-### 2. Environment variables
-
-Copy `env.local.example` to `.env.local` and fill it in:
+Create `.env.local`:
 
 ```
-NEXT_PUBLIC_FIREBASE_API_KEY=
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=
-NEXT_PUBLIC_FIREBASE_APP_ID=
 GEMINI_API_KEY=
 # Optional. Defaults to gemini-2.5-flash
 GEMINI_MODEL=
-
-# Server only. Firebase console → Project settings → Service accounts → Generate new private key
-FIREBASE_PROJECT_ID=
-FIREBASE_CLIENT_EMAIL=
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
 ```
-
-Keep the private key on one line with `\n` for line breaks. Never commit it or prefix it with `NEXT_PUBLIC_`.
-
-`GEMINI_API_KEY` is server-only. Never prefix it with `NEXT_PUBLIC_`.
-
-### 3. Firebase setup
-
-1. Create a project in the [Firebase console](https://console.firebase.google.com).
-2. Add a **web app** and copy its config into `.env.local`.
-3. Go to **Authentication → Sign-in method** and enable **Email/Password** and **Google**.
-4. Go to **Authentication → Settings → Authorized domains** and make sure `localhost` and your production domain are listed.
-
-### 4. Run
 
 ```bash
 npm run dev
 ```
 
-Open `http://localhost:3000`.
-
-> The code imports with the `@/` alias (for example `@/lib/firebase`). `create-next-app` sets this up by default. If your project has no alias, add `"paths": { "@/*": ["./*"] }` to `tsconfig.json`.
-
----
-
-## Routes
-
-| Route | Access | Purpose |
-| --- | --- | --- |
-| `/` | Public | Landing page and goal entry |
-| `/auth` | Public | Log in or sign up |
-| `/assessment` | Signed in | Income, skills, expenses, time |
-| `/plan` | Signed in | AI plan and weekly actions |
-| `/earn` | Signed in | Survey and microtask platforms |
-| `/dashboard` | Signed in | Progress, charts, history |
-| `POST /api/plan` | Signed in (token checked) | Generates and saves the plan |
-
----
-
-## Sessions
-
-Firebase local persistence keeps users signed in after they close the tab or browser, until they sign out. `AuthProvider` reads the saved session on load and exposes it through `useAuth()`:
-
-```tsx
-const { user, loading, logout } = useAuth();
-```
-
----
+Open `http://localhost:3000`. On your host (for example Vercel), add `GEMINI_API_KEY` in the environment variables and redeploy.
 
 ## Where data lives
 
-All user data is saved in Firestore under the signed-in user, so it follows them across devices.
+Goal, answers, plan, ticked tasks, logged entries, joined platforms and the dollar rate are stored in `localStorage` under the key `mindbank:data`. This means:
 
-```
-users/{uid}
-  goal          { amount, goal }
-  assessment    { status, income, skills, expenses, savings, hours, deadline, ... }
-  plan          AI plan (written by the server only)
-  planKey       fingerprint of the goal + answers the plan was built from
-  done          { "1-0": true, ... } ticked weekly actions
-  start         date the user began
-  migrated      true once old on-device data has been moved
-
-users/{uid}/entries/{id}
-  kind, source, amount, date, note, ts
-```
-
-- `sessionStorage` holds only the goal typed on the landing page, until the user signs in. It is then copied to the account.
-- Data from earlier versions that was kept in `localStorage` is moved into the account once, on first sign-in, then removed from the device.
-- A plan is reused while the goal and answers are unchanged. If either changes, a new plan is built.
-
-### Firestore rules
-
-Publish `firestore.rules` in the Firebase console (Firestore Database → Rules). They let each user read and write only their own data. The browser cannot write `plan` or `planKey`, only the server can.
+- Data stays on one device and browser.
+- Clearing browser data erases it.
+- Nothing is sent to a server except the goal and answers, which go to `/api/plan` to build the plan.
 
 ## The AI plan
 
-`POST /api/plan` sends the goal and assessment to Gemini and expects JSON back: summary, feasibility, weekly target, saving strategy, earning opportunities and weekly actions.
+`POST /api/plan` receives the goal and answers, checks and trims them, and returns a plan.
 
-- The prompt forbids loans, betting, crypto trading and get-rich-quick schemes, and asks for honest estimates.
-- If `GEMINI_API_KEY` is missing, or Gemini fails, the route returns a plan calculated from the user's own numbers, so the page still works. The response includes `source: "gemini"` or `"fallback"`.
-
----
+- Opportunities come from `lib/opportunities.ts`, so links are real and matched to the person's skills (free text such as "React developer" is understood).
+- Gemini writes the summary, saving advice and weekly steps. If it is busy or no key is set, a built-in plan is returned.
+- The route is public, so it limits each IP to 6 plans per 10 minutes. This is a basic, per-instance limit.
 
 ## Earning platforms
 
-The `/earn` page lists survey and microtask sites from the `PLATFORMS` array at the top of `app/earn/page.tsx`. Each entry has the pay per task, minimum cashout, payout methods, Nigeria availability and a link.
+The survey and microtask sites are listed in the `PLATFORMS` array at the top of `app/earn/page.tsx`. Figures come from third-party reviews and user reports, not a live feed, and change often. Re-check them before launch. Do not call them "verified" unless you verify them yourself.
 
-**Important:**
+## Known limits and next steps
 
-- Figures come from third-party reviews and user reports, not a live feed. They change often. The page shows a "last checked" date, which is set by `LAST_CHECKED`.
-- Re-check each platform before launch and whenever you update the list.
-- Prolific is not listed because it supports only certain countries and Nigeria is not on its main list.
-- Do not call these platforms "verified" unless you verify them yourself.
-- No referral codes are included. If you add any, disclose them to users.
-
----
-
-## Known limitations and roadmap
-
-- [x] **Firestore.** Goal, answers, plan, ticked tasks and entries are saved per user.
-- [x] **Protect `/api/plan`.** The route verifies the Firebase ID token and reads the answers from the database.
-- [ ] Add a per-user limit on plan rebuilds.
-- [ ] **Publish `firestore.rules`** in the Firebase console. Until you do, reads and writes may be blocked or open depending on your project mode.
-- [ ] Add a log-out button and a profile page.
-- [ ] Forgot password, Terms and Privacy pages, and a custom 404.
-- [ ] Move `PLATFORMS` to a database table so it can be updated without redeploying.
-- [ ] Replace the placeholder Unsplash images with your own files in `/public`.
-- [ ] Have the AI plan recommend platforms from the `/earn` list.
-
----
-
-## Deployment
-
-1. Push the project to GitHub.
-2. Import it into [Vercel](https://vercel.com) (or any Next.js host).
-3. Add every variable from `.env.local` in the host's environment settings.
-4. Add the deployed domain to Firebase **Authorized domains**.
-5. Run `npm run build` locally first to catch errors.
-
----
+- [ ] No accounts: data does not follow a person across devices. Add sign-in and a database if you need that.
+- [ ] The rate limit resets when the server instance restarts. Use a shared store (for example Upstash Redis) or add sign-in for stronger protection of your Gemini quota.
+- [ ] Re-check every platform's pay, minimum cashout and link.
+- [ ] Add Terms, Privacy, and a custom 404 page.
+- [ ] Replace the Unsplash images with your own files in `/public`.
 
 ## Disclaimer
 
-MindBank provides planning guidance only. It is not financial advice and does not guarantee earnings. Pay estimates for third-party platforms are indicative and may be out of date. Users should read each platform's terms and never pay to join a survey or microtask site.
-
----
-
-**Think it. Plan it. Earn it. Withdraw it.**
+MindBank provides planning guidance only. It is not financial advice and does not guarantee earnings. Pay estimates for third-party platforms are indicative and may be out of date. Never pay to join a survey or microtask site.
